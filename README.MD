@@ -17,3 +17,7 @@ setup.sh
 ### layers
 
 This is where the data layer is defined
+
+### Status
+
+![losscurve](https://github.com/LArbys/ubhires/blob/master/training_plot.png)
