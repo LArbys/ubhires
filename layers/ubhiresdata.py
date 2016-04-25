@@ -24,14 +24,30 @@ class UBHiResData(caffe.Layer):
 
         self._setupBranches( self.config )
 
+        print dir(self)
+        data_params = eval(self.data_param)
+        self.batchsize = self.data_param["batch_size"]
+
+
     def reshape(self, bottom, top):
         pass
 
     def forward(self, bottom, top):
+        """ 
+        we fill the top blobs.
+        """
         pass
 
     def backward(self,top,propagate_down,bottom):
         pass
+
+    def getEntry( self, entry ):
+        if self.ioman is not None:
+            self.ioman.read_entry( entry )
+
+    def getEventID( self, run, subrun, event ):
+        if self.ioman is not None:
+            self.ioman.set_id( run, subrun, event )        
 
     def _setupBranches( self, config ):
         """
@@ -47,11 +63,9 @@ class UBHiResData(caffe.Layer):
                 l = l.strip()
                 self.ioman.add_in_file( l )
         self.ioman.initialize()
-    
-    def getEntry( self, entry ):
-        if self.ioman is not None:
-            self.ioman.read_entry( entry )
-
-    def getEventID( self, run, subrun, event ):
-        if self.ioman is not None:
-            self.ioman.set_id( run, subrun, event )        
+        
+    def _batch_advancer(self):
+        """
+        this loads enough image for the next batch
+        """
+        pass

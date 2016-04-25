@@ -12,7 +12,7 @@ def dummy():
     net = caffe.NetSpec()
     pydata_params = dict(configfile="config_train.yaml")
     pylayer = 'UBHiResData'
-    net.data, net.label = L.Python(module='layers.ubhiresdata', layer=pylayer,
+    net.data, net.label = L.Python(module='layers.ubhiresdata', layer=pylayer,data_param=dict(batch_size=10),
                                    ntop=2, param_str=str(pydata_params))
     return net
 
