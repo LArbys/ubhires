@@ -1,7 +1,9 @@
 import caffe
 
+import ROOT as rt
 import numpy as np
-import larcv
+from larcv import larcv
+import yaml
 
 class UBHiResData(caffe.Layer):
     """
@@ -17,8 +19,10 @@ class UBHiResData(caffe.Layer):
         
         # get parameters
         params = eval(self.param_str)
-        
-        self.ioman = self._loadIOmanager( params )
+        with open(params['configfile'], 'r') as f:
+            self.config = yaml.load(f)
+
+        self._setupBranches( self.config )
 
     def reshape(self, bottom, top):
         pass
@@ -29,12 +33,25 @@ class UBHiResData(caffe.Layer):
     def backward(self,top,propagate_down,bottom):
         pass
 
-    def _loadIOmanager( self, params ):
+    def _setupBranches( self, config ):
         """
         load the larcv iomanager
         """
-        print "IOMANAGER SETUP"
-        print params
+        print "IOMANAGER/BRANCH SETUP"
 
-        
-        
+        self.ioman = larcv.IOManager( larcv.IOManager.kREAD, "IO")
+
+        with open(self.config["filelist"],'r') as f:
+            lines = f.readlines()
+            for l in lines:
+                l = l.strip()
+                self.ioman.add_in_file( l )
+        self.ioman.initialize()
+    
+    def getEntry( self, entry ):
+        if self.ioman is not None:
+            self.ioman.read_entry( entry )
+
+    def getEventID( self, run, subrun, event ):
+        if self.ioman is not None:
+            self.ioman.set_id( run, subrun, event )        
