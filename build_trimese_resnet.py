@@ -19,7 +19,7 @@ def buildnet( inputdb, mean_file, batch_size, height, width, nchannels, net_type
     if net_type=="train":
         train = True
 
-    data_layers,label = lt.data_layer_trimese( net, inputdb, mean_file, batch_size, net_type, height, width, nchannels, [2,4], crop_size=768 )
+    data_layers,label = lt.data_layer_trimese( net, inputdb, mean_file, batch_size, net_type, height, width, nchannels, [1,2], crop_size=768 )
 
     # First conv  layer
     branch_ends = []
@@ -72,7 +72,7 @@ def buildnet( inputdb, mean_file, batch_size, height, width, nchannels, net_type
 
     return net
 
-def append_rootdata_layer( prototxt ):
+def append_rootdata_layer( prototxt, imin, imax, flat_mean ):
     fin = open(prototxt,'r')
     fout = open( prototxt.replace(".prototxt","_rootdata.prototxt"), 'w' )
     lines = fin.readlines()
@@ -106,20 +106,20 @@ layer {
     source: %s
     mean: %s
     mean_producer: "mean"
-    image_producer: "6ch_hires_crop"
+    image_producer: "tpc_hires_crop"
     roi_producer: "tpc_hires_crop"
     nentries: %d
     batch_size: %d
-    imin: "[35,10,30,10,40,10]"
-    imax: "[400,400,400,400,400,400]"
-    flat_mean: "[0,0,0,0,0,0]"
+    imin: \"%s\"
+    imax: \"%s\"
+    flat_mean: \"%s\"
     random_adc_scale_mean: 1.0
     random_adc_scale_sigma: -1.0
     random_col_pad: 0
     random_row_pad: 0
   }    
 }
-""" % (flist,mean_file,batch_size,batch_size)
+""" % (flist,mean_file,batch_size,batch_size,imin,imax,flat_mean)
 
     print >>fout,rootlayer
 
@@ -130,13 +130,30 @@ layer {
 
 if __name__ == "__main__":
     
-    traindb    = "/home/taritree/working/larbys/ubhires/flist_train.txt"
-    train_mean = "/home/taritree/working/larbys/staged_data/train6ch_mean.root"
-    testdb     = "/home/taritree/working/larbys/ubhires/flist_test.txt"
-    test_mean  = "/home/taritree/working/larbys/staged_data/val6ch_mean.root"
-    
+    #traindb    = "/home/taritree/working/larbys/ubhires/flist_train.txt"
+    #train_mean = "/home/taritree/working/larbys/staged_data/train6ch_mean.root"
+    #testdb     = "/home/taritree/working/larbys/ubhires/flist_test.txt"
+    #test_mean  = "/home/taritree/working/larbys/staged_data/val6ch_mean.root"
 
-    train_net   = buildnet( traindb, train_mean, 36, 768, 768, 3, net_type="train"  )
+    #traindb    = "/home/taritree/working/larbys/LArCV/app/smallsample/flist_train.txt"
+    #train_mean = "/home/taritree/working/larbys/LArCV/app/smallsample/train_overfit_mean.root"    
+    #testdb     = "/home/taritree/working/larbys/LArCV/app/smallsample/flist_test.txt"
+    #test_mean  = "/home/taritree/working/larbys/LArCV/app/smallsample/test_overfit_mean.root"
+
+    #traindb    = "/home/taritree/working/larbys/LArCV/app/smallsample/flist_3ch_train.txt"
+    #train_mean = "/home/taritree/working/larbys/LArCV/app/smallsample/train_3ch_overfit_mean.root"    
+    #testdb     = "/home/taritree/working/larbys/LArCV/app/smallsample/flist_3ch_test.txt"
+    #test_mean  = "/home/taritree/working/larbys/LArCV/app/smallsample/test_3ch_overfit_mean.root"
+
+    traindb    = "/home/taritree/working/larbys/ubhires/results/ubtri/001/flist_train2.txt"
+    train_mean = "/mnt/disk0/kterao/hires_train/train_mean.root"
+    testdb     = "/home/taritree/working/larbys/ubhires/results/ubtri/001/flist_test2.txt"
+    test_mean  = "/mnt/disk0/kterao/hires_train/val_mean.root"
+    imin       = "[30,28,40]"
+    imax       = "[400,400,400]"
+    flat_mean  = "[0,0,0]"
+
+    train_net   = buildnet( traindb, train_mean, 10, 768, 768, 3, net_type="train"  )
     test_net    = buildnet( testdb,   test_mean, 1, 768, 768, 3, net_type="test"  )
     deploy_net  = buildnet( testdb, test_mean, 1, 768, 768, 3, net_type="deploy"  )
 
@@ -150,8 +167,8 @@ if __name__ == "__main__":
     trainout.close()
     deployout.close()
 
-    append_rootdata_layer( 'ub_trimese_resnet_train.prototxt' )
-    append_rootdata_layer( 'ub_trimese_resnet_test.prototxt' )
+    append_rootdata_layer( 'ub_trimese_resnet_train.prototxt', imin, imax, flat_mean )
+    append_rootdata_layer( 'ub_trimese_resnet_test.prototxt',  imin, imax, flat_mean )
 
     os.system("rm ub_trimese_resnet_train.prototxt")
     os.system("rm ub_trimese_resnet_test.prototxt")

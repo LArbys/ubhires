@@ -14,31 +14,46 @@ class EventData:
     def __init__( self ):
         pass
 
-def fill_event_queue( iom, mean_images, event_queue, maxqueuesize ):
+def makeEventData( iom, mean_images ):
+    evtimgs = iom.get_data( larcv.kProductImage2D, "tpc_hires_crop" )
+    evtroi  = iom.get_data( larcv.kProductROI, "tpc_hires_crop" )
+    roi = evtroi.ROIArray().at(0)
+    nchannels = evtimgs.Image2DArray().size()
+    img2d_arr = np.zeros( mean_images.shape, dtype=np.float )
+    for n,img2d in enumerate(evtimgs.Image2DArray()):
+        img2d_arr[n,...] = larcv.as_ndarray( img2d )
+    evtdata = EventData()
+    evtdata.img2d_arr = img2d_arr
+    if roi.Type()==larcv.kROICosmic:
+        evtdata.label     = 0
+    else:
+        evtdata.label     = 1
+    return evtdata
+    
 
+def fill_event_queue( iom, mean_images, event_queue, maxqueuesize, config ):
+
+    nentries = iom.get_n_entries()
+    ientry = 0
     while True:
         if event_queue.qsize()<maxqueuesize:
-            # get an entry from random
-            iom.read_entry( np.random.randint(0,iom.get_n_entries()) )
+            if config["run_mode"]=="randomize":
+                # get an entry from random
+                ientry = np.random.randint(0,nentries)
+                iom.read_entry( ientry )
+            elif config["run_mode"]=="sequential":
+                iom.read_entry( ientry )
+                ientry += 1
+                if ientry>=nentries:
+                    ientry = 0
     
             # get three TPC channel images: later we will be clever and understand how to specify this 
+
             # via text file (YMAL, json, whatever)
-    
-            evtimgs = iom.get_data( larcv.kProductImage2D, "tpc_hires_crop" )
-            evtroi  = iom.get_data( larcv.kProductROI, "tpc_hires_crop" )
-            roi = evtroi.ROIArray().at(0)
-            nchannels = evtimgs.Image2DArray().size()
-            img2d_arr = np.zeros( mean_images.shape, dtype=np.float )
-            for n,img2d in enumerate(evtimgs.Image2DArray()):
-                img2d_arr[n,...] = larcv.as_ndarray( img2d )
-            evtdata = EventData()
-            evtdata.img2d_arr = img2d_arr
-            if roi.Type()==larcv.kROICosmic:
-                evtdata.label     = 0
-            else:
-                evtdata.label     = 1
-            event_queue.put( evtdata )
-            #print "filled queue"
+
+            evtdata = makeEventData( iom )
+            self.event_queue.put( evtdata )
+            print "filled queue w/ entry: ",ientry
         else:
             #print "queue is full (",maxqueuesize,")"
             sleep(0.1)
@@ -80,11 +95,17 @@ class UBHiResData(caffe.Layer):
         top[0].reshape( *data_shape )
         top[1].reshape( *label_shape ) 
 
-        # setup the queue
+        # depending on the run mode, we setup the queue
         self.event_queue = Queue()
-        self.event_thread = Thread( target=fill_event_queue, args=(self.ioman, self.mean_img, self.event_queue, self.batch_size*2 ) )
-        self.event_thread.setDaemon(True)
-        self.event_thread.start()
+        if self.config["run_mode"] in ["sequential","randomize"]:
+            # setup the queue
+            self.event_thread = Thread( target=fill_event_queue, args=(self.ioman, self.mean_img, self.event_queue, self.batch_size*2, self.config ) )
+            self.event_thread.setDaemon(True)
+            self.event_thread.start()
+        elif self.config["run_mode"]=="selection":
+            self.batch_size = 1
+        else:
+            raise ValueError("unrecognized run_mode. either [sequential,randomize,selection]")
 
 
 
@@ -96,10 +117,13 @@ class UBHiResData(caffe.Layer):
         we fill the top blobs.
         """
         nfilled = 0
+        maxattempts = 100
         while nfilled<self.batch_size:
-            while self.event_queue.empty():
+            nattempts=0
+            while self.event_queue.empty() and nattempts<maxattempts:
                 print "waiting on image queue to be filled"
                 sleep( 0.1 )
+                nattempts += 1
             eventdata = self.event_queue.get()
             top[0].data[nfilled,...] = eventdata.img2d_arr[...]
             top[1].data[nfilled]     = eventdata.label
@@ -109,12 +133,19 @@ class UBHiResData(caffe.Layer):
         pass
 
     def getEntry( self, entry ):
+        self.current_entry = entry
         if self.ioman is not None:
             self.ioman.read_entry( entry )
 
     def getEventID( self, run, subrun, event ):
         if self.ioman is not None:
             self.ioman.set_id( run, subrun, event )        
+
+    def evalEntry( self, entry ):
+        self.getEntry(entry)
+        evtdata = makeEventData(self.ioman, self.mean_img)
+        self.event_queue.put( evtdata )
+        print "evalEntry: ",entry
 
     def _setupBranches( self, config ):
         """

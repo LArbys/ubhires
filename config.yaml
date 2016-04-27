@@ -1,0 +1,14 @@
+meanfile: /mnt/disk0/kterao/hires_train/val_mean.root
+filelist: results/ubtri/001/flist_test2.txt
+tpcimage_producer: tpc_hires_crop
+pmtweighted_producer: pmtweight_hires_crop
+roi_producer: tpc_hires_crop
+nentries: 100
+batch_size: 1
+imin_plane0: 5
+imin_plane1: 5
+imin_plane2: 5
+imax_plane0: 400
+imax_plane1: 400
+imax_plane2: 400
+run_mode: selection
