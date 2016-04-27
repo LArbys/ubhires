@@ -7,10 +7,11 @@ import yaml
 
 from Queue import Queue
 from threading import Thread
+from time import sleep
 
 class EventData:
     # place to hold image data for blob
-    def __init__( self, iom ):
+    def __init__( self ):
         pass
 
 def fill_event_queue( iom, mean_images, event_queue, maxqueuesize ):
@@ -23,21 +24,23 @@ def fill_event_queue( iom, mean_images, event_queue, maxqueuesize ):
             # get three TPC channel images: later we will be clever and understand how to specify this 
             # via text file (YMAL, json, whatever)
     
-            evtimgs = iom.get_data( larcv.kProductImage2D, "6ch_hires_crop" )
-            roi     = iom.get_data( larcv.kProductROI, "tpc_hires_crop" )
+            evtimgs = iom.get_data( larcv.kProductImage2D, "tpc_hires_crop" )
+            evtroi  = iom.get_data( larcv.kProductROI, "tpc_hires_crop" )
+            roi = evtroi.ROIArray().at(0)
             nchannels = evtimgs.Image2DArray().size()
-            img2d_arr = np.zeros( mean_image, dtype=np.float )
+            img2d_arr = np.zeros( mean_images.shape, dtype=np.float )
             for n,img2d in enumerate(evtimgs.Image2DArray()):
                 img2d_arr[n,...] = larcv.as_ndarray( img2d )
             evtdata = EventData()
             evtdata.img2d_arr = img2d_arr
-            if roi.Type()==larcv.kROICosmics:
+            if roi.Type()==larcv.kROICosmic:
                 evtdata.label     = 0
             else:
                 evtdata.label     = 1
             event_queue.put( evtdata )
+            #print "filled queue"
         else:
-            print "queue is full (",maxqueuesize,")"
+            #print "queue is full (",maxqueuesize,")"
             sleep(0.1)
 
 class UBHiResData(caffe.Layer):
@@ -51,34 +54,38 @@ class UBHiResData(caffe.Layer):
         """
         seems to be a required method for a PythonDataLayer
         """
-        
+
         # get parameters
         params = eval(self.param_str)
         with open(params['configfile'], 'r') as f:
             self.config = yaml.load(f)
-
+            
+        self.batch_size = self.config["batch_size"]
         self._setupBranches( self.config )
 
         meanio = larcv.IOManager( larcv.IOManager.kREAD, "IOmean" )
         meanio.add_in_file( self.config["meanfile"] )
         meanio.initialize()
         mean_evtimg = meanio.get_data( larcv.kProductImage2D, "mean" )
-        w = mean_evtimg.Image2DArray().at(0).meta().width()
-        h = mean_evtimg.Image2DArray().at(0).meta().height()
-        self.mean_img = np.zeros( (mean_evtimg.Image2DArray().size(), w, h ), dtype=np.float )
+        self.nchannels = int(mean_evtimg.Image2DArray().size())
+        self.width    = int(mean_evtimg.Image2DArray().at(0).meta().cols())
+        self.height   = int(mean_evtimg.Image2DArray().at(0).meta().rows())
+        self.mean_img = np.zeros( ( self.nchannels, self.width, self.height), dtype=np.float )
         for ch,img2d in enumerate(mean_evtimg.Image2DArray()):
-            mean_img[ch,...] = larcv.as_ndarray( img2d )[...]
-            
+            self.mean_img[ch,...] = larcv.as_ndarray( img2d )[...]
 
-        print dir(self)
-        data_params = eval(self.data_param)
-        self.batchsize = self.data_param["batch_size"]
+        # set the blob sizes I guess
+        data_shape  = (self.batch_size, self.nchannels, self.width, self.height ) 
+        label_shape = (self.batch_size,)
+        top[0].reshape( *data_shape )
+        top[1].reshape( *label_shape ) 
 
+        # setup the queue
         self.event_queue = Queue()
-        self.event_thread = Thread( target=fill_event_queue, args=(self.ioman, self.mean_image, self.event_queue, self.batchsize*2 ) )
+        self.event_thread = Thread( target=fill_event_queue, args=(self.ioman, self.mean_img, self.event_queue, self.batch_size*2 ) )
         self.event_thread.setDaemon(True)
         self.event_thread.start()
-        
+
 
 
     def reshape(self, bottom, top):
@@ -89,12 +96,13 @@ class UBHiResData(caffe.Layer):
         we fill the top blobs.
         """
         nfilled = 0
-        while nfilled<self.batchsize:
-            while q.empty():
+        while nfilled<self.batch_size:
+            while self.event_queue.empty():
                 print "waiting on image queue to be filled"
                 sleep( 0.1 )
             eventdata = self.event_queue.get()
-            self._fillBlob( nfilled, eventdata )
+            top[0].data[nfilled,...] = eventdata.img2d_arr[...]
+            top[1].data[nfilled]     = eventdata.label
             nfilled += 1
 
     def backward(self,top,propagate_down,bottom):
@@ -122,9 +130,6 @@ class UBHiResData(caffe.Layer):
                 l = l.strip()
                 self.ioman.add_in_file( l )
         self.ioman.initialize()
-        
-    def _fillBlob( self, index, eventdata ):
-        pass
         
     def _batch_advancer(self):
         """

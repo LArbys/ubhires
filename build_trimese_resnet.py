@@ -19,7 +19,7 @@ def buildnet( inputdb, mean_file, batch_size, height, width, nchannels, net_type
     if net_type=="train":
         train = True
 
-    data_layers,label = lt.data_layer_trimese( net, inputdb, mean_file, batch_size, net_type, height, width, nchannels, [1,2], crop_size=768 )
+    data_layers,label = lt.data_layer_trimese( net, inputdb, mean_file, batch_size, net_type, height, width, nchannels, [2,4], crop_size=768 )
 
     # First conv  layer
     branch_ends = []
@@ -106,19 +106,17 @@ layer {
     source: %s
     mean: %s
     mean_producer: "mean"
-    image_producer: "tpc_hires_crop"
+    image_producer: "6ch_hires_crop"
     roi_producer: "tpc_hires_crop"
     nentries: %d
     batch_size: %d
-    imin_plane0: 30
-    imin_plane1: 28
-    imin_plane2: 40
-    imax_plane0: 400
-    imax_plane1: 400
-    imax_plane2: 400
-    ch0_mean: 0
-    ch1_mean: 0
-    ch2_mean: 0
+    imin: "[35,10,30,10,40,10]"
+    imax: "[400,400,400,400,400,400]"
+    flat_mean: "[0,0,0,0,0,0]"
+    random_adc_scale_mean: 1.0
+    random_adc_scale_sigma: -1.0
+    random_col_pad: 0
+    random_row_pad: 0
   }    
 }
 """ % (flist,mean_file,batch_size,batch_size)
@@ -133,9 +131,9 @@ layer {
 if __name__ == "__main__":
     
     traindb    = "/home/taritree/working/larbys/ubhires/flist_train.txt"
-    train_mean = "/mnt/disk0/kterao/hires_train/train_mean.root"
+    train_mean = "/home/taritree/working/larbys/staged_data/train6ch_mean.root"
     testdb     = "/home/taritree/working/larbys/ubhires/flist_test.txt"
-    test_mean  = "/mnt/disk0/kterao/hires_train/val_mean.root"
+    test_mean  = "/home/taritree/working/larbys/staged_data/val6ch_mean.root"
     
 
     train_net   = buildnet( traindb, train_mean, 36, 768, 768, 3, net_type="train"  )
