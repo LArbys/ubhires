@@ -14,20 +14,51 @@ class EventData:
     def __init__( self ):
         pass
 
-def makeEventData( iom, mean_images ):
-    evtimgs = iom.get_data( larcv.kProductImage2D, "tpc_hires_crop" )
+def makeEventData( iom, mean_images, index, config ):
+    #evtimgs = iom.get_data( larcv.kProductImage2D, "tpc_hires_crop" )
+    evtimgs = iom.get_data( larcv.kProductImage2D, "6ch_hires_crop" )
     evtroi  = iom.get_data( larcv.kProductROI, "tpc_hires_crop" )
     roi = evtroi.ROIArray().at(0)
     nchannels = evtimgs.Image2DArray().size()
     img2d_arr = np.zeros( mean_images.shape, dtype=np.float )
+    min_thresh = config["imin"]
+    max_thresh = config["imax"]
     for n,img2d in enumerate(evtimgs.Image2DArray()):
-        img2d_arr[n,...] = larcv.as_ndarray( img2d )
+        # get image as ND array
+        imgnd = larcv.as_ndarray( img2d )
+        plane = img2d.meta().plane()
+
+        # subtract mean
+        imgnd -= mean_images[n,...]
+
+        # subtract imin
+        imgnd -= min_thresh[n]
+
+        # zero pixels below threshold
+        minmask = imgnd < 0.0
+        maxmask = imgnd > max_thresh[n]
+        imgnd[minmask] = 0.0
+        imgnd[maxmask] = max_thresh[n]
+
+        # copy to event array
+        img2d_arr[n,...] = imgnd
+        
     evtdata = EventData()
     evtdata.img2d_arr = img2d_arr
+    # label
     if roi.Type()==larcv.kROICosmic:
         evtdata.label     = 0
     else:
         evtdata.label     = 1
+
+    # event ID
+    evtdata.eventid = np.zeros( (5), dtype=np.int )
+    evtdata.eventid[0] = iom.event_id().run()
+    evtdata.eventid[1] = iom.event_id().subrun()
+    evtdata.eventid[2] = iom.event_id().event()
+    evtdata.eventid[3] = -1 # window id goes here eventually
+    evtdata.eventid[4] = index
+
     return evtdata
     
 
@@ -43,17 +74,19 @@ def fill_event_queue( iom, mean_images, event_queue, maxqueuesize, config ):
                 iom.read_entry( ientry )
             elif config["run_mode"]=="sequential":
                 iom.read_entry( ientry )
-                ientry += 1
-                if ientry>=nentries:
-                    ientry = 0
     
             # get three TPC channel images: later we will be clever and understand how to specify this 
 
             # via text file (YMAL, json, whatever)
 
-            evtdata = makeEventData( iom )
-            self.event_queue.put( evtdata )
-            print "filled queue w/ entry: ",ientry
+            evtdata = makeEventData( iom, mean_images, ientry, config )
+            event_queue.put( evtdata )
+            #print "filled queue w/ entry: ",ientry
+            
+            if config["run_mode"]=="sequential":
+                ientry += 1
+                if ientry>=nentries:
+                    ientry = 0
         else:
             #print "queue is full (",maxqueuesize,")"
             sleep(0.1)
@@ -92,8 +125,10 @@ class UBHiResData(caffe.Layer):
         # set the blob sizes I guess
         data_shape  = (self.batch_size, self.nchannels, self.width, self.height ) 
         label_shape = (self.batch_size,)
+        eventid_shape = (self.batch_size, 5)
         top[0].reshape( *data_shape )
-        top[1].reshape( *label_shape ) 
+        top[1].reshape( *label_shape )
+        top[2].reshape( *eventid_shape )
 
         # depending on the run mode, we setup the queue
         self.event_queue = Queue()
@@ -106,8 +141,6 @@ class UBHiResData(caffe.Layer):
             self.batch_size = 1
         else:
             raise ValueError("unrecognized run_mode. either [sequential,randomize,selection]")
-
-
 
     def reshape(self, bottom, top):
         pass
@@ -127,6 +160,7 @@ class UBHiResData(caffe.Layer):
             eventdata = self.event_queue.get()
             top[0].data[nfilled,...] = eventdata.img2d_arr[...]
             top[1].data[nfilled]     = eventdata.label
+            top[2].data[nfilled,...] = eventdata.eventid
             nfilled += 1
 
     def backward(self,top,propagate_down,bottom):
@@ -143,7 +177,7 @@ class UBHiResData(caffe.Layer):
 
     def evalEntry( self, entry ):
         self.getEntry(entry)
-        evtdata = makeEventData(self.ioman, self.mean_img)
+        evtdata = makeEventData(self.ioman, self.mean_img, entry, self.config )
         self.event_queue.put( evtdata )
         print "evalEntry: ",entry
 

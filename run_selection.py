@@ -14,13 +14,6 @@ gpu_id = 0
 caffe.set_mode_gpu()
 caffe.set_device(gpu_id)
 
-def dummy():
-    net = caffe.NetSpec()
-    pydata_params = dict(configfile="config_train.yaml")
-    pylayer = 'UBHiResData'
-    net.data, net.label, net.eventid = L.Python(module='layers.ubhiresdata', layer=pylayer, ntop=3, param_str=str(pydata_params))
-    return net
-
 def ubtri():
     model = "results/ubtri/001/snapshot_rmsprop_iter_17732.caffemodel"
     prototxt = "ub_trimese_resnet_deploy.prototxt"
@@ -40,7 +33,7 @@ if __name__ == "__main__":
     import ROOT as rt
     from array import array
 
-    out = rt.TFile( "out_6ch_val.root", "recreate" )
+    out = rt.TFile( "out_selection_6ch_val.root", "recreate" )
     run        = array('i',[0])
     subrun     = array('i',[0])
     event      = array('i',[0])
@@ -55,9 +48,15 @@ if __name__ == "__main__":
     tree.Branch( "truthlabel", truthlabel, "truthlabel/I" )
     tree.Branch( "nuprob", nuprob, "nuprob/F" )
 
-    for x in range(100):
-        #net.layers[0].evalEntry(x)
-        print "BATCH ",x
+    entrylist = []
+    with open("runlist_6ch_val.txt",'r' ) as frunlist:
+        lines = frunlist.readlines()
+        for l in lines:
+            entrylist.append( int(l.strip().split()[0]) )
+
+    for x in entrylist:
+        net.layers[0].evalEntry(x)
+        print "ENTRY ",x
         net.forward()
         for (label,probs,eventid) in zip( net.blobs["label"].data, net.blobs["probt"].data, net.blobs["eventid"].data ):
             truthlabel[0] = label
@@ -66,6 +65,7 @@ if __name__ == "__main__":
             subrun[0] = eventid[1]
             event[0] = eventid[2]
             index[0] = eventid[4]
+            print "nu prob: ",nuprob[0]
             tree.Fill()
 
     print "[ENTER] to stop"
